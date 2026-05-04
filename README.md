@@ -1,23 +1,23 @@
-# E57 Image Extractor
+# E57 Image and Cubemap Converter
 
-This script extracts embedded 2D images from an E57 file and writes a JSON metadata file for each image.
+This project extracts embedded 2D images from an E57 file and converts panoramic images into cubemap faces.
 
-## What the script does
+## What the project does
 
-Given an E57 scan file, `extract.py`:
+`extract.py`:
 
-1. Opens the file with `pye57`.
-2. Reads the `images2D` section from the E57 root.
-3. For each image entry:
-   - Reads the JPEG bytes from either the `pinholeRepresentation` or `sphericalRepresentation`.
-   - Decodes the JPEG with OpenCV.
-   - Saves the image as `images/<image_name>.jpg`.
-   - Saves metadata as `metadata/<image_name>.json`.
-4. If pose data is present, the metadata includes:
-   - `translation`: `x`, `y`, `z`
-   - `rotation`: quaternion `x`, `y`, `z`, `w`
+1. Opens an E57 file with `pye57`.
+2. Reads the `images2D` section.
+3. Extracts each embedded JPEG image.
+4. Saves images and JSON metadata under `ext/<e57_filename>/...`.
+5. Preserves the original E57 image name in metadata and generates unique output filenames when names are duplicated.
 
-If the file contains no `images2D` entries, the script logs a warning and exits without creating output files.
+`cubemap.py`:
+
+1. Reads extracted panorama images from a folder such as `ext/Scans/images`.
+2. Detects whether each image is already a valid 2:1 panorama.
+3. Converts each panorama into 6 cubemap faces.
+4. Saves cubemaps under `ext/<e57_filename>/images/cubemaps/<image_name>/`.
 
 ## Requirements
 
@@ -32,29 +32,27 @@ Install dependencies with:
 pip install numpy opencv-python pye57
 ```
 
-To generate cubemaps from extracted panoramas, the same `numpy` and `opencv-python` dependencies are required.
-
 ## Usage
 
-Basic usage:
+Extract images and metadata from an E57 file:
 
 ```bash
 python extract.py Scans.e57
 ```
 
-Specify a custom output folder:
+Extract to a custom root output folder:
 
 ```bash
-python extract.py Scans.e57 --outfolder extracted_data
+python extract.py Scans.e57 --outfolder ext
 ```
 
-Generate cubemap faces from the extracted panoramas:
+Generate cubemaps from extracted images:
 
 ```bash
 python cubemap.py ext/Scans/images
 ```
 
-Specify a custom cubemap output folder:
+Generate cubemaps into a custom output folder:
 
 ```bash
 python cubemap.py ext/Scans/images --outfolder other_cubemaps
@@ -62,7 +60,7 @@ python cubemap.py ext/Scans/images --outfolder other_cubemaps
 
 ## Output structure
 
-The extractor creates this folder layout:
+After extraction:
 
 ```text
 ext/
@@ -75,15 +73,23 @@ ext/
       image_2.json
 ```
 
-The cubemap script creates this folder layout:
+After cubemap generation:
 
 ```text
 ext/
   Scans/
     images/
-      p000016.jpg
+      image_1.jpg
+      image_2.jpg
       cubemaps/
-        p000016/
+        image_1/
+          posx.jpg
+          negx.jpg
+          posy.jpg
+          negy.jpg
+          posz.jpg
+          negz.jpg
+        image_2/
           posx.jpg
           negx.jpg
           posy.jpg
@@ -92,11 +98,14 @@ ext/
           negz.jpg
 ```
 
+## Metadata format
+
 Example metadata with pose:
 
 ```json
 {
-    "name": "image_1",
+    "name": "Panorama",
+    "output_name": "Panorama_002",
     "translation": {
         "x": 1.0,
         "y": 2.0,
@@ -115,22 +124,26 @@ Example metadata without pose:
 
 ```json
 {
-    "name": "image_1"
+    "name": "Panorama",
+    "output_name": "Panorama"
 }
 ```
 
+## Cubemap behavior
+
+- Face names are `posx`, `negx`, `posy`, `negy`, `posz`, `negz`.
+- Cubemaps are generated with the highest resolution possible without upscaling.
+- Face size is computed as `min(width // 4, height // 2)` for valid 2:1 panoramas.
+- For a `7680x3840` panorama, face size is `1920x1920`.
+- For non-2:1 images, the script performs a centered best-effort crop to the largest possible 2:1 region before conversion.
+
 ## Notes and limitations
 
-- The script assumes each embedded image is stored as JPEG data.
-- Output image filenames are based directly on the E57 image `name`.
-- The script does not currently sanitize filenames or handle duplicate image names.
-- If decoding fails, `cv2.imwrite` may receive `None` and fail depending on the input data.
-- `extract.py` now stores outputs under `ext/<e57_filename>/...`, for example `ext/Scans/images` and `ext/Scans/metadata`.
-- `cubemap.py` stores cubemaps by default under the input images folder, for example `ext/Scans/images/cubemaps`.
-- `cubemap.py` expects equirectangular panoramas and uses the generic cubemap face order `posx`, `negx`, `posy`, `negy`, `posz`, `negz`.
-- For valid 2:1 panoramas, cubemap face resolution is the highest possible without upscaling: `min(width // 4, height // 2)`.
-- For the current `7680x3840` panoramas, that means `1920x1920` cubemap faces.
-- Non-2:1 inputs are converted in best-effort mode by center-cropping to the largest 2:1 region before conversion, which may be geometrically inexact.
+- The extractor assumes embedded images are stored as JPEG data.
+- Output filenames are based on the E57 image name.
+- If multiple E57 images share the same name, the extractor appends suffixes like `_002`, `_003`, and so on.
+- `cubemap.py` is intended for equirectangular panoramas.
+- If an image cannot be decoded, it is skipped during cubemap generation.
 
 ## Running tests
 
