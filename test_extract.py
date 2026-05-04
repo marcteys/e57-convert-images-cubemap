@@ -142,6 +142,7 @@ class ExtractTests(unittest.TestCase):
                 metadata["rotation"],
                 {"x": 0.1, "y": 0.2, "z": 0.3, "w": 0.4},
             )
+            self.assertEqual(metadata["output_name"], "front_view")
 
     def test_uses_spherical_representation_when_pinhole_is_missing(self):
         root_data = {
@@ -215,6 +216,45 @@ class ExtractTests(unittest.TestCase):
                 json.loads(second_metadata.read_text()),
                 {"name": "Panorama", "output_name": "Panorama_002"},
             )
+
+    def test_uses_png_image_when_jpeg_image_is_missing(self):
+        root_data = {
+            "images2D": [
+                {
+                    "name": FakeValue("png_panorama"),
+                    "sphericalRepresentation": {
+                        "pngImage": FakeBlob([5, 6, 7]),
+                    },
+                }
+            ]
+        }
+        module, fake_cv2 = load_extract_module(root_data, imdecode_result="png-image")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module.extract_and_save_images_and_metadata("dummy.e57", tmpdir)
+
+            image_path = Path(tmpdir) / "dummy" / "images" / "png_panorama.jpg"
+            self.assertEqual(fake_cv2.written_files, [(str(image_path), "png-image")])
+
+    def test_skips_image_when_decoding_fails(self):
+        root_data = {
+            "images2D": [
+                {
+                    "name": FakeValue("broken_panorama"),
+                    "sphericalRepresentation": {
+                        "jpegImage": FakeBlob([1, 2, 3]),
+                    },
+                }
+            ]
+        }
+        module, fake_cv2 = load_extract_module(root_data, imdecode_result=None)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module.extract_and_save_images_and_metadata("dummy.e57", tmpdir)
+
+            self.assertEqual(fake_cv2.written_files, [])
+            self.assertFalse((Path(tmpdir) / "dummy" / "images" / "broken_panorama.jpg").exists())
+            self.assertFalse((Path(tmpdir) / "dummy" / "metadata" / "broken_panorama.json").exists())
 
 
 if __name__ == "__main__":

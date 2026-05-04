@@ -2,7 +2,6 @@ import numpy as np
 import cv2
 import pye57
 import argparse
-import os
 import json
 import logging
 from pathlib import Path
@@ -21,6 +20,30 @@ def build_unique_output_name(image_name, used_names):
     if count == 1:
         return image_name
     return f"{image_name}_{count:03d}"
+
+
+def get_image_representation(image2D):
+    if 'pinholeRepresentation' in image2D:
+        return image2D['pinholeRepresentation']
+    if 'sphericalRepresentation' in image2D:
+        return image2D['sphericalRepresentation']
+    raise KeyError("No supported image representation found.")
+
+
+def decode_embedded_image(image_representation):
+    for field_name in ("jpegImage", "pngImage"):
+        if field_name not in image_representation:
+            continue
+
+        encoded_image = image_representation[field_name]
+        encoded_image_data = np.zeros(shape=encoded_image.byteCount(), dtype=np.uint8)
+        encoded_image.read(encoded_image_data, 0, encoded_image.byteCount())
+
+        image = cv2.imdecode(encoded_image_data, cv2.IMREAD_COLOR)
+        if image is not None:
+            return image, field_name
+
+    return None, None
 
 
 def extract_and_save_images_and_metadata(e57_path, output_root):
@@ -45,17 +68,20 @@ def extract_and_save_images_and_metadata(e57_path, output_root):
     for image_idx, image2D in enumerate(root['images2D']):
         logging.info(f"Processing image {image_idx}...")
 
-        pinhole = image2D['pinholeRepresentation'] if 'pinholeRepresentation' in image2D else image2D['sphericalRepresentation']
-        jpeg_image = pinhole['jpegImage']
-        jpeg_image_data = np.zeros(shape=jpeg_image.byteCount(), dtype=np.uint8)
-        jpeg_image.read(jpeg_image_data, 0, jpeg_image.byteCount())
-        image = cv2.imdecode(jpeg_image_data, cv2.IMREAD_COLOR)
-
         image_name = str(image2D['name'].value())
         output_name = build_unique_output_name(image_name, used_names)
+        image_representation = get_image_representation(image2D)
+        image, image_format = decode_embedded_image(image_representation)
+        if image is None:
+            logging.warning(
+                "Skipping image %s because OpenCV could not decode its embedded image data.",
+                output_name,
+            )
+            continue
+
         image_path = images_output_folder / f"{output_name}.jpg"
         cv2.imwrite(str(image_path), image)
-        logging.info(f"Saved image to {image_path}")
+        logging.info("Saved %s to %s", image_format, image_path)
 
         if 'pose' in image2D:
             translation = image2D['pose']['translation']
