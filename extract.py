@@ -9,6 +9,33 @@ from pathlib import Path
 # Setup basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
+def get_named_child(node, child_name):
+    if isinstance(node, dict):
+        return node.get(child_name)
+
+    try:
+        return node[child_name]
+    except Exception:
+        return None
+
+
+def iter_child_names(node):
+    if isinstance(node, dict):
+        return list(node.keys())
+
+    names = []
+    try:
+        for child in node:
+            element_name = getattr(child, "elementName", None)
+            if callable(element_name):
+                names.append(element_name())
+    except TypeError:
+        return names
+
+    return names
+
+
 def build_output_base_folder(e57_path, output_root):
     e57_name = Path(e57_path).stem
     return Path(output_root) / e57_name
@@ -23,19 +50,32 @@ def build_unique_output_name(image_name, used_names):
 
 
 def get_image_representation(image2D):
-    if 'pinholeRepresentation' in image2D:
-        return image2D['pinholeRepresentation']
-    if 'sphericalRepresentation' in image2D:
-        return image2D['sphericalRepresentation']
+    preferred_names = (
+        "pinholeRepresentation",
+        "sphericalRepresentation",
+        "cylindricalRepresentation",
+        "visualReferenceRepresentation",
+    )
+    for field_name in preferred_names:
+        child = get_named_child(image2D, field_name)
+        if child is not None:
+            return child
+
+    for field_name in iter_child_names(image2D):
+        if not str(field_name).endswith("Representation"):
+            continue
+        child = get_named_child(image2D, field_name)
+        if child is not None:
+            return child
+
     return None
 
 
 def decode_embedded_image(image_representation):
     for field_name in ("jpegImage", "pngImage"):
-        if field_name not in image_representation:
+        encoded_image = get_named_child(image_representation, field_name)
+        if encoded_image is None:
             continue
-
-        encoded_image = image_representation[field_name]
         encoded_image_data = np.zeros(shape=encoded_image.byteCount(), dtype=np.uint8)
         encoded_image.read(encoded_image_data, 0, encoded_image.byteCount())
 
@@ -90,9 +130,10 @@ def extract_and_save_images_and_metadata(e57_path, output_root):
         cv2.imwrite(str(image_path), image)
         logging.info("Saved %s to %s", image_format, image_path)
 
-        if 'pose' in image2D:
-            translation = image2D['pose']['translation']
-            rotation = image2D['pose']['rotation']
+        pose = get_named_child(image2D, "pose")
+        if pose is not None:
+            translation = pose['translation']
+            rotation = pose['rotation']
             x = float(translation['x'].value())
             y = float(translation['y'].value())
             z = float(translation['z'].value())

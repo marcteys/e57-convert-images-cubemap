@@ -32,6 +32,28 @@ class FakeBlob:
             buffer[index] = value
 
 
+class FakeNodeChild:
+    def __init__(self, name):
+        self._name = name
+
+    def elementName(self):
+        return self._name
+
+
+class FakeStructureNode:
+    def __init__(self, mapping):
+        self._mapping = mapping
+
+    def __getitem__(self, key):
+        if key not in self._mapping:
+            raise KeyError(key)
+        return self._mapping[key]
+
+    def __iter__(self):
+        for key in self._mapping:
+            yield FakeNodeChild(key)
+
+
 class FakeImageFile:
     def __init__(self, root_data):
         self._root_data = root_data
@@ -273,6 +295,58 @@ class ExtractTests(unittest.TestCase):
             self.assertEqual(fake_cv2.written_files, [])
             self.assertFalse((Path(tmpdir) / "dummy" / "images" / "unsupported_image.jpg").exists())
             self.assertFalse((Path(tmpdir) / "dummy" / "metadata" / "unsupported_image.json").exists())
+
+    def test_extracts_images_from_pye57_like_nodes_without_dict_membership(self):
+        root_data = {
+            "images2D": [
+                FakeStructureNode(
+                    {
+                        "name": FakeValue("pye57_panorama"),
+                        "sphericalRepresentation": FakeStructureNode(
+                            {
+                                "jpegImage": FakeBlob([7, 8, 9]),
+                            }
+                        ),
+                        "pose": FakeStructureNode(
+                            {
+                                "translation": {
+                                    "x": FakeValue(4.0),
+                                    "y": FakeValue(5.0),
+                                    "z": FakeValue(6.0),
+                                },
+                                "rotation": {
+                                    "x": FakeValue(0.5),
+                                    "y": FakeValue(0.6),
+                                    "z": FakeValue(0.7),
+                                    "w": FakeValue(0.8),
+                                },
+                            }
+                        ),
+                    }
+                )
+            ]
+        }
+        module, fake_cv2 = load_extract_module(root_data, imdecode_result="pye57-image")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module.extract_and_save_images_and_metadata("dummy.e57", tmpdir)
+
+            image_path = Path(tmpdir) / "dummy" / "images" / "pye57_panorama.jpg"
+            metadata_path = Path(tmpdir) / "dummy" / "metadata" / "pye57_panorama.json"
+
+            self.assertEqual(
+                fake_cv2.written_files,
+                [(str(image_path), "pye57-image")],
+            )
+
+            metadata = json.loads(metadata_path.read_text())
+            self.assertEqual(metadata["name"], "pye57_panorama")
+            self.assertEqual(metadata["output_name"], "pye57_panorama")
+            self.assertEqual(metadata["translation"], {"x": 4.0, "y": 5.0, "z": 6.0})
+            self.assertEqual(
+                metadata["rotation"],
+                {"x": 0.5, "y": 0.6, "z": 0.7, "w": 0.8},
+            )
 
 
 if __name__ == "__main__":
