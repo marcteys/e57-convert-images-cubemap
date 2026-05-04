@@ -256,6 +256,24 @@ class ExtractTests(unittest.TestCase):
             self.assertFalse((Path(tmpdir) / "dummy" / "images" / "broken_panorama.jpg").exists())
             self.assertFalse((Path(tmpdir) / "dummy" / "metadata" / "broken_panorama.json").exists())
 
+    def test_skips_image_when_representation_is_unsupported(self):
+        root_data = {
+            "images2D": [
+                {
+                    "name": FakeValue("unsupported_image"),
+                    "visualReferenceRepresentation": {},
+                }
+            ]
+        }
+        module, fake_cv2 = load_extract_module(root_data)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module.extract_and_save_images_and_metadata("dummy.e57", tmpdir)
+
+            self.assertEqual(fake_cv2.written_files, [])
+            self.assertFalse((Path(tmpdir) / "dummy" / "images" / "unsupported_image.jpg").exists())
+            self.assertFalse((Path(tmpdir) / "dummy" / "metadata" / "unsupported_image.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

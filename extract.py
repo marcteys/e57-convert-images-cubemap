@@ -27,7 +27,7 @@ def get_image_representation(image2D):
         return image2D['pinholeRepresentation']
     if 'sphericalRepresentation' in image2D:
         return image2D['sphericalRepresentation']
-    raise KeyError("No supported image representation found.")
+    return None
 
 
 def decode_embedded_image(image_representation):
@@ -71,6 +71,13 @@ def extract_and_save_images_and_metadata(e57_path, output_root):
         image_name = str(image2D['name'].value())
         output_name = build_unique_output_name(image_name, used_names)
         image_representation = get_image_representation(image2D)
+        if image_representation is None:
+            logging.warning(
+                "Skipping image %s because it has no supported image representation.",
+                output_name,
+            )
+            continue
+
         image, image_format = decode_embedded_image(image_representation)
         if image is None:
             logging.warning(
